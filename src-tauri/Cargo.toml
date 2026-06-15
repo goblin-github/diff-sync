@@ -1,0 +1,39 @@
+[package]
+name = "diff-sync"
+version = "4.2.0"
+authors = ["DiffSync ops team"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "diff_sync_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+yaml-rust2 = "0.11"
+rust-ini = "0.21"
+quick-xml = { version = "0.40", features = ["serialize"] }
+tokio = { version = "1", features = ["full"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+# OpenOptionsExt::mode is unix-only
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"

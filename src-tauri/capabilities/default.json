@@ -1,0 +1,31 @@
+{
+  "$schema": "../schemas/capability-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for DiffSync",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
+    "dialog:default"
+  ]
+}
