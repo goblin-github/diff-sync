@@ -1,0 +1,15 @@
+# Project-level Cargo config — overrides broken user-level mirror settings.
+# When a user has a broken mirror in ~/.cargo/config.toml (e.g. USTC returning
+# 404), this project-level `replace-with` takes priority and uses a working
+# mirror instead.
+#
+# Note: we CANNOT set `registry = "sparse+https://index.crates.io/"` because
+# Cargo detects it as a duplicate of the built-in crates-io source and rejects
+# it. A mirror URL (like Tsinghua below) has a different host so it's accepted
+# as a legitimate replacement source.
+
+[source.crates-io]
+replace-with = "tuna"
+
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"

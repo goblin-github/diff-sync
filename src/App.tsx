@@ -47,6 +47,7 @@ export const App: React.FC = () => {
   const [showEnvModal, setShowEnvModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editingEnv, setEditingEnv] = useState<Environment | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   // ── Data Layer ──
   const {
@@ -151,6 +152,35 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleRenameProject = (projectId: string, newName: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, name: newName } : p)),
+    );
+    setEditingProject(null);
+    setShowProjModal(false);
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    const ok = await confirm('确定要删除此项目及其所有环境吗？相关凭据和备份也将被清除。', {
+      title: '确认删除项目',
+      kind: 'warning',
+    });
+    if (!ok) return;
+    // Delete credentials for all environments in this project
+    const project = projects.find((p) => p.id === projectId);
+    if (project) {
+      for (const env of project.environments) {
+        await invoke('delete_env_credential', { envId: env.id });
+      }
+    }
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    if (activeProjectId === projectId) {
+      setActiveProjectId(null);
+      setActiveEnvId(null);
+      editor.resetActiveEnv();
+    }
+  };
+
   // ── Render ──
 
   return (
@@ -171,7 +201,10 @@ export const App: React.FC = () => {
             ⚙️
           </button>
           <button
-            onClick={() => setShowProjModal(true)}
+            onClick={() => {
+              setEditingProject(null);
+              setShowProjModal(true);
+            }}
             className="rounded bg-zinc-800 px-3 py-1 text-xs hover:bg-zinc-700 transition border border-zinc-700 cursor-pointer"
           >
             + 创建新项目
@@ -341,6 +374,11 @@ export const App: React.FC = () => {
                 setEditingEnv(null);
                 setShowEnvModal(true);
               }}
+              onRenameProject={(project) => {
+                setEditingProject(project);
+                setShowProjModal(true);
+              }}
+              onDeleteProject={handleDeleteProject}
             />
           </div>
         </aside>
@@ -478,7 +516,10 @@ export const App: React.FC = () => {
                 通过 SSH 连接远程服务器，实时比对并同步配置文件。
               </p>
               <button
-                onClick={() => setShowProjModal(true)}
+                onClick={() => {
+                  setEditingProject(null);
+                  setShowProjModal(true);
+                }}
                 className="px-5 py-2.5 rounded-lg bg-emerald-500 text-zinc-950 text-sm font-semibold hover:bg-emerald-400 transition cursor-pointer shadow-lg shadow-emerald-500/20"
               >
                 + 创建第一个项目
@@ -563,16 +604,24 @@ export const App: React.FC = () => {
 
       {showProjModal && (
         <ProjectModal
-          onClose={() => setShowProjModal(false)}
-          onSave={(name) => {
-            const newProj: Project = {
-              id: crypto.randomUUID(),
-              name,
-              environments: [],
-            };
-            setProjects((prev) => [...prev, newProj]);
-            setActiveProjectId(newProj.id);
+          initialName={editingProject?.name}
+          onClose={() => {
             setShowProjModal(false);
+            setEditingProject(null);
+          }}
+          onSave={(name) => {
+            if (editingProject) {
+              handleRenameProject(editingProject.id, name);
+            } else {
+              const newProj: Project = {
+                id: crypto.randomUUID(),
+                name,
+                environments: [],
+              };
+              setProjects((prev) => [...prev, newProj]);
+              setActiveProjectId(newProj.id);
+              setShowProjModal(false);
+            }
           }}
         />
       )}

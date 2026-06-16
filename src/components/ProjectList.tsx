@@ -11,6 +11,8 @@ interface Props {
   onCloneEnvironment: (env: Environment) => void;
   onEditEnvironment: (env: Environment) => void;
   onAddEnvironment: () => void;
+  onRenameProject: (project: Project) => void;
+  onDeleteProject: (projectId: string) => void;
 }
 
 export const ProjectList: React.FC<Props> = ({
@@ -23,6 +25,8 @@ export const ProjectList: React.FC<Props> = ({
   onCloneEnvironment,
   onEditEnvironment,
   onAddEnvironment,
+  onRenameProject,
+  onDeleteProject,
 }) => {
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
@@ -30,16 +34,39 @@ export const ProjectList: React.FC<Props> = ({
     <div className="flex flex-col h-full overflow-hidden select-none">
       {/* Project selector */}
       <div className="p-3 border-b border-zinc-800">
-        <select
-          className="w-full rounded bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-emerald-500 transition cursor-pointer"
-          value={activeProjectId || ''}
-          onChange={(e) => setActiveProjectId(e.target.value || null)}
-        >
-          <option value="" className="text-zinc-500">选择项目...</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-1">
+          <select
+            className="flex-1 min-w-0 rounded bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-emerald-500 transition cursor-pointer"
+            value={activeProjectId || ''}
+            onChange={(e) => setActiveProjectId(e.target.value || null)}
+          >
+            <option value="" className="text-zinc-500">选择项目...</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {activeProjectId && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={() => {
+                  const proj = projects.find((p) => p.id === activeProjectId);
+                  if (proj) onRenameProject(proj);
+                }}
+                className="text-zinc-500 hover:text-zinc-200 text-[10px] px-1 py-0.5 cursor-pointer"
+                title="重命名项目"
+              >
+                ✎
+              </button>
+              <button
+                onClick={() => onDeleteProject(activeProjectId)}
+                className="text-zinc-500 hover:text-red-400 text-[10px] px-1 py-0.5 cursor-pointer"
+                title="删除项目"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Environment list */}

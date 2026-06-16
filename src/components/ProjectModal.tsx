@@ -3,10 +3,13 @@ import React, { useState } from 'react';
 interface Props {
   onClose: () => void;
   onSave: (name: string) => void;
+  /** If provided, the modal is in "edit" mode with pre-filled name. */
+  initialName?: string;
 }
 
-export const ProjectModal: React.FC<Props> = ({ onClose, onSave }) => {
-  const [name, setName] = useState('');
+export const ProjectModal: React.FC<Props> = ({ onClose, onSave, initialName }) => {
+  const [name, setName] = useState(initialName || '');
+  const isEdit = initialName !== undefined;
 
   const handleSave = () => {
     if (!name.trim()) return;
@@ -18,7 +21,9 @@ export const ProjectModal: React.FC<Props> = ({ onClose, onSave }) => {
       onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) handleSave(); }}
     >
       <div className="w-96 rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl p-6 space-y-4">
-        <h3 className="text-sm font-bold text-zinc-100">创建新项目</h3>
+        <h3 className="text-sm font-bold text-zinc-100">
+          {isEdit ? '重命名项目' : '创建新项目'}
+        </h3>
         <div className="space-y-2">
           <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
             项目名称
@@ -48,7 +53,7 @@ export const ProjectModal: React.FC<Props> = ({ onClose, onSave }) => {
                 : 'bg-zinc-800 text-zinc-500 border border-zinc-700 cursor-not-allowed'
             }`}
           >
-            创建项目
+            {isEdit ? '保存' : '创建项目'}
           </button>
         </div>
       </div>
