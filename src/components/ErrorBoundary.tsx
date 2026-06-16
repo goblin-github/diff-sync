@@ -38,15 +38,15 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="text-center space-y-4 max-w-md">
             <span className="text-5xl">💥</span>
             <h2 className="text-lg font-bold text-zinc-200">应用遇到错误</h2>
-            <p className="text-xs text-zinc-500 leading-relaxed">
+            <p className="text-sm text-zinc-500 leading-relaxed">
               {this.state.error?.message || '未知错误'}
             </p>
-            <p className="text-[10px] text-zinc-600">
+            <p className="text-[12px] text-zinc-600">
               请尝试重启应用。如问题持续出现，请检查数据文件是否损坏。
             </p>
             <button
               onClick={this.handleReset}
-              className="px-4 py-2 rounded bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-700 transition cursor-pointer"
+              className="px-4 py-2 rounded bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 hover:bg-zinc-700 transition cursor-pointer"
             >
               重试
             </button>

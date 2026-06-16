@@ -101,7 +101,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto flex items-start gap-2 max-w-[420px] rounded-lg border px-3 py-2.5 text-xs shadow-xl backdrop-blur-sm transition-all duration-300 ${COLORS[t.type]} ${
+            className={`pointer-events-auto flex items-start gap-2 max-w-[420px] rounded-lg border px-3 py-2.5 text-sm shadow-xl backdrop-blur-sm transition-all duration-300 ${COLORS[t.type]} ${
               t.leaving
                 ? 'opacity-0 translate-x-6'
                 : 'opacity-100 translate-x-0 animate-slide-in-right'

@@ -36,6 +36,8 @@ export interface UseEditorSessionReturn {
   isInitializing: boolean;
   diffStats: { added: number; removed: number };
   pendingSwitchEnv: Environment | null;
+  pendingCloseEnv: boolean;
+  isDirtyRef: React.MutableRefObject<boolean>;
   // Backup state
   backupRecords: BackupRecord[];
   showBackupRestore: boolean;
@@ -56,6 +58,13 @@ export interface UseEditorSessionReturn {
   handleSaveAndSwitch: () => Promise<void>;
   handleDiscardAndSwitch: () => Promise<void>;
   handleCancelSwitch: () => void;
+  // Close environment
+  handleRequestCloseEnv: () => void;
+  handleSaveAndClose: () => Promise<void>;
+  handleDiscardAndClose: () => void;
+  handleCancelClose: () => void;
+  // Revert
+  handleRevertChanges: () => void;
   // Backup operations
   loadBackupList: () => Promise<void>;
   handleLoadBackupForDiff: (backupFilename: string) => Promise<void>;
@@ -82,10 +91,16 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
   const [modifiedContent, setModifiedContent] = useState('');
   const [originalEnding, setOriginalEnding] = useState<'LF' | 'CRLF'>('LF');
   const [isDirty, setIsDirty] = useState(false);
+  const isDirtyRef = useRef(false);
+  const setDirty = useCallback((val: boolean) => {
+    setIsDirty(val);
+    isDirtyRef.current = val;
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [diffStats, setDiffStats] = useState({ added: 0, removed: 0 });
   const [pendingSwitchEnv, setPendingSwitchEnv] = useState<Environment | null>(null);
+  const [pendingCloseEnv, setPendingCloseEnv] = useState(false);
 
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const committedOriginal = useRef('');
@@ -104,13 +119,15 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
 
   const resetActiveEnv = useCallback(() => {
     cleanupEditor();
+    resetBackupStateRef.current();
     setActiveEnv(null);
     setOriginalContent('');
     setModifiedContent('');
-    setIsDirty(false);
+    setDirty(false);
     setIsLoading(false);
     setIsInitializing(false);
-  }, [cleanupEditor]);
+    setPendingCloseEnv(false);
+  }, [cleanupEditor, setDirty]);
 
   // ── Backup Operations (extracted hook) ──
 
@@ -118,7 +135,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     (content: string) => {
       committedModified.current = content;
       setModifiedContent(content);
-      setIsDirty(false);
+      setDirty(false);
       setIsViewingBackup(false);
     },
     [],
@@ -148,6 +165,10 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     resetBackupState,
   } = backup;
 
+  // Keep a ref to resetBackupState so resetActiveEnv can call it
+  const resetBackupStateRef = useRef(resetBackupState);
+  resetBackupStateRef.current = resetBackupState;
+
   // ── Shared validation helper ──
 
   const validateEditorContent = useCallback(
@@ -174,7 +195,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
         resetLock(activeEnv.id);
       }
       setDiffStats({ added: 0, removed: 0 });
-      setIsDirty(false);
+      setDirty(false);
       resetBackupState();
       if (targetEnv.isProduction) {
         resetLock(targetEnv.id);
@@ -296,7 +317,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     if (!pendingSwitchEnv) return;
     const env = pendingSwitchEnv;
     setPendingSwitchEnv(null);
-    setIsDirty(false);
+    setDirty(false);
     await executeEnvironmentSwitch(env);
   }, [pendingSwitchEnv, executeEnvironmentSwitch]);
 
@@ -341,7 +362,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
       await writeLocalFile(activeEnv.localFilePath, currentContent, originalEnding);
       committedOriginal.current = currentContent;
       setOriginalContent(currentContent);
-      setIsDirty(false);
+      setDirty(false);
       setStatus(`🟢 本地保存成功 (${new Date().toLocaleTimeString()})`);
     } catch (err: any) {
       setStatus(`❌ 本地保存异常: ${err.message || err}`);
@@ -394,7 +415,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
       });
       committedModified.current = currentContent;
       setModifiedContent(currentContent);
-      setIsDirty(false);
+      setDirty(false);
       if (isViewingBackup) {
         setIsViewingBackup(false);
       }
@@ -413,6 +434,43 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     }
   }, [activeEnv, modifiedContent, originalEnding, isInitializing, isViewingBackup, diffStats, isLocked, resetLock, setStatus, validateEditorContent]);
 
+  // ── Close Environment ──
+
+  const handleRequestCloseEnv = useCallback(() => {
+    if (isDirtyRef.current) {
+      setPendingCloseEnv(true);
+    } else {
+      resetActiveEnv();
+    }
+  }, [resetActiveEnv]);
+
+  const handleSaveAndClose = useCallback(async () => {
+    setPendingCloseEnv(false);
+    await handlePushConfig();
+    resetActiveEnv();
+  }, [handlePushConfig, resetActiveEnv]);
+
+  const handleDiscardAndClose = useCallback(() => {
+    setPendingCloseEnv(false);
+    setDirty(false);
+    resetActiveEnv();
+  }, [resetActiveEnv, setDirty]);
+
+  const handleCancelClose = useCallback(() => {
+    setPendingCloseEnv(false);
+  }, []);
+
+  // ── Revert Changes ──
+
+  const handleRevertChanges = useCallback(() => {
+    if (!editorRef.current || !activeEnv) return;
+    const orig = editorRef.current.getOriginalEditor();
+    const mod = editorRef.current.getModifiedEditor();
+    if (orig) orig.setValue(committedOriginal.current);
+    if (mod) mod.setValue(committedModified.current);
+    setStatus('↩️ 已还原至载入状态');
+  }, [activeEnv, setStatus]);
+
   // ── Editor Mount ──
 
   const handleDiffEditorMount = useCallback((diffEditor: editor.IStandaloneDiffEditor) => {
@@ -429,7 +487,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
       if (trimTrailingNL(current) !== trimTrailingNL(committedOriginal.current)) {
         committedOriginal.current = current;
         setOriginalContent(current);
-        setIsDirty(true);
+        setDirty(true);
       }
     });
 
@@ -439,7 +497,7 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
       if (trimTrailingNL(current) !== trimTrailingNL(committedModified.current)) {
         committedModified.current = current;
         setModifiedContent(current);
-        setIsDirty(true);
+        setDirty(true);
       }
     });
 
@@ -471,6 +529,8 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     isInitializing,
     diffStats,
     pendingSwitchEnv,
+    pendingCloseEnv,
+    isDirtyRef,
     backupRecords,
     showBackupRestore,
     backupContent,
@@ -486,6 +546,11 @@ export function useEditorSession(opts: UseEditorSessionOptions): UseEditorSessio
     handleSaveAndSwitch,
     handleDiscardAndSwitch,
     handleCancelSwitch,
+    handleRequestCloseEnv,
+    handleSaveAndClose,
+    handleDiscardAndClose,
+    handleCancelClose,
+    handleRevertChanges,
     loadBackupList,
     handleLoadBackupForDiff,
     handleSwitchToRemote,

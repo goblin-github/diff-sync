@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Project, Environment } from '../types';
+import ContextMenu from './ContextMenu';
 
 interface Props {
   projects: Project[];
@@ -13,6 +14,7 @@ interface Props {
   onAddEnvironment: () => void;
   onRenameProject: (project: Project) => void;
   onDeleteProject: (projectId: string) => void;
+  onCloseActiveEnv?: () => void;
 }
 
 export const ProjectList: React.FC<Props> = ({
@@ -27,8 +29,14 @@ export const ProjectList: React.FC<Props> = ({
   onAddEnvironment,
   onRenameProject,
   onDeleteProject,
+  onCloseActiveEnv,
 }) => {
   const activeProject = projects.find((p) => p.id === activeProjectId);
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number; y: number; env: Environment;
+  } | null>(null);
 
   return (
     <div className="flex flex-col h-full overflow-hidden select-none">
@@ -36,7 +44,7 @@ export const ProjectList: React.FC<Props> = ({
       <div className="p-3 border-b border-zinc-800">
         <div className="flex items-center gap-1">
           <select
-            className="flex-1 min-w-0 rounded bg-zinc-900 border border-zinc-700 text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-emerald-500 transition cursor-pointer"
+            className="flex-1 min-w-0 rounded bg-zinc-900 border border-zinc-700 text-sm text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-emerald-500 transition cursor-pointer"
             value={activeProjectId || ''}
             onChange={(e) => setActiveProjectId(e.target.value || null)}
           >
@@ -52,14 +60,14 @@ export const ProjectList: React.FC<Props> = ({
                   const proj = projects.find((p) => p.id === activeProjectId);
                   if (proj) onRenameProject(proj);
                 }}
-                className="text-zinc-500 hover:text-zinc-200 text-[10px] px-1 py-0.5 cursor-pointer"
+                className="text-zinc-500 hover:text-zinc-200 text-[12px] px-1 py-0.5 cursor-pointer"
                 title="重命名项目"
               >
                 ✎
               </button>
               <button
                 onClick={() => onDeleteProject(activeProjectId)}
-                className="text-zinc-500 hover:text-red-400 text-[10px] px-1 py-0.5 cursor-pointer"
+                className="text-zinc-500 hover:text-red-400 text-[12px] px-1 py-0.5 cursor-pointer"
                 title="删除项目"
               >
                 ✕
@@ -76,14 +84,14 @@ export const ProjectList: React.FC<Props> = ({
             <div className="flex items-center justify-end px-2 py-0.5">
               <button
                 onClick={onAddEnvironment}
-                className="text-zinc-500 hover:text-zinc-200 text-xs cursor-pointer transition"
+                className="text-zinc-500 hover:text-zinc-200 text-sm cursor-pointer transition"
                 title="添加环境"
               >
                 + 添加
               </button>
             </div>
             {activeProject.environments.length === 0 ? (
-              <p className="text-[10px] text-zinc-600 text-center py-4">
+              <p className="text-[12px] text-zinc-600 text-center py-4">
                 暂无环境，点击 + 添加
               </p>
             ) : (
@@ -95,7 +103,16 @@ export const ProjectList: React.FC<Props> = ({
                       ? 'bg-zinc-800/80 ring-1 ring-emerald-500/30'
                       : ''
                   }`}
-                  onClick={() => onSelectEnvironment(env)}
+                  onClick={() => {
+                    // Click: open if not already active
+                    if (env.id !== activeEnvId) {
+                      onSelectEnvironment(env);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setCtxMenu({ x: e.clientX, y: e.clientY, env });
+                  }}
                 >
                   <span
                     className={`inline-block w-2 h-2 rounded-full shrink-0 ${
@@ -103,7 +120,7 @@ export const ProjectList: React.FC<Props> = ({
                     }`}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className={`text-xs truncate ${
+                    <p className={`text-sm truncate ${
                       env.id === activeEnvId ? 'text-emerald-400 font-medium' : 'text-zinc-300'
                     }`}>{env.name}</p>
                   </div>
@@ -114,7 +131,7 @@ export const ProjectList: React.FC<Props> = ({
                         e.stopPropagation();
                         onEditEnvironment(env);
                       }}
-                      className="text-zinc-500 hover:text-zinc-200 text-[10px] px-1 cursor-pointer"
+                      className="text-zinc-500 hover:text-zinc-200 text-[12px] px-1 cursor-pointer"
                       title="编辑"
                     >
                       ✎
@@ -124,7 +141,7 @@ export const ProjectList: React.FC<Props> = ({
                         e.stopPropagation();
                         onCloneEnvironment(env);
                       }}
-                      className="text-zinc-500 hover:text-zinc-200 text-[10px] px-1 cursor-pointer"
+                      className="text-zinc-500 hover:text-zinc-200 text-[12px] px-1 cursor-pointer"
                       title="克隆"
                     >
                       ⧉
@@ -134,7 +151,7 @@ export const ProjectList: React.FC<Props> = ({
                         e.stopPropagation();
                         onDeleteEnvironment(env.id, activeProject.id);
                       }}
-                      className="text-zinc-500 hover:text-red-400 text-[10px] px-1 cursor-pointer"
+                      className="text-zinc-500 hover:text-red-400 text-[12px] px-1 cursor-pointer"
                       title="删除"
                     >
                       ✕
@@ -147,9 +164,9 @@ export const ProjectList: React.FC<Props> = ({
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <span className="text-zinc-700 text-2xl mb-2">📂</span>
-            <p className="text-[10px] text-zinc-600 text-center">
+            <p className="text-[12px] text-zinc-600 text-center">
               {projects.length === 0
-                ? '点击顶部按钮创建第一个项目'
+                ? '点击右上角 + 创建第一个项目'
                 : '选择一个项目查看环境'}
             </p>
           </div>
@@ -158,11 +175,45 @@ export const ProjectList: React.FC<Props> = ({
 
       {/* Footer */}
       <div className="p-2 border-t border-zinc-800">
-        <p className="text-[9px] text-zinc-600 text-center">
+        <p className="text-[13px] text-zinc-600 text-center">
           {projects.length} 项目 ·{' '}
           {projects.reduce((acc, p) => acc + p.environments.length, 0)} 环境
         </p>
       </div>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            {
+              label: ctxMenu.env.id === activeEnvId ? '关闭' : '打开',
+              onClick: () => {
+                if (ctxMenu.env.id === activeEnvId && onCloseActiveEnv) {
+                  onCloseActiveEnv();
+                } else if (ctxMenu.env.id !== activeEnvId) {
+                  onSelectEnvironment(ctxMenu.env);
+                }
+              },
+            },
+            {
+              label: '编辑',
+              onClick: () => onEditEnvironment(ctxMenu.env),
+            },
+            {
+              label: '克隆',
+              onClick: () => onCloneEnvironment(ctxMenu.env),
+            },
+            {
+              label: '删除',
+              onClick: () => onDeleteEnvironment(ctxMenu.env.id, activeProject!.id),
+              danger: true,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };
