@@ -22,7 +22,11 @@ pub struct EnvCredential {
 
 /// TTL for cached SSH sessions — avoids redundant handshake on adjacent operations
 /// (e.g. open-environment → edit → push within 2 minutes).
-const SESSION_CACHE_TTL: Duration = Duration::from_secs(120);
+///
+/// Kept short (30 s) so stale connections evicted by the server are less likely
+/// to be reused.  The keepalive probe inside [`acquire_session`] provides a
+/// second line of defence.
+const SESSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// Build a deterministic cache key from connection parameters.
 pub fn make_cache_key(host: &str, port: u16, username: &str, private_key_path: Option<&str>) -> String {
@@ -63,7 +67,8 @@ impl SessionPool {
 /// Try to pull a still-valid session from the pool.
 ///
 /// Returns `None` when the pool is not registered, the key is absent,
-/// the TTL has expired, or the underlying connection has dropped.
+/// the TTL has expired, the underlying connection has dropped, or a
+/// keepalive probe fails.
 pub fn acquire_session(app: &AppHandle, cache_key: &str) -> Option<Session> {
     let pool = app.try_state::<SessionPool>()?;
     let mut cache = pool.cache.lock().unwrap();
@@ -79,9 +84,24 @@ pub fn acquire_session(app: &AppHandle, cache_key: &str) -> Option<Session> {
         reused = fresh,
         "SessionPool::acquire"
     );
-    if fresh {
-        Some(entry.session)
+    if !fresh {
+        return None;
+    }
+
+    // ── Liveness probe: send an SSH_MSG_IGNORE keepalive ──
+    // `authenticated()` only checks an internal flag — it doesn't verify
+    // that the TCP connection is still open.  Servers may have dropped the
+    // connection due to ClientAliveInterval or NAT timeouts.
+    let session = entry.session;
+    let orig_timeout = session.timeout();
+    session.set_timeout(2_000); // 2 s is enough for a keepalive round-trip
+    let alive = session.keepalive_send().is_ok();
+    session.set_timeout(orig_timeout);
+    if alive {
+        tracing::info!(%cache_key, "SessionPool::acquire keepalive OK");
+        Some(session)
     } else {
+        tracing::warn!(%cache_key, "SessionPool::acquire keepalive FAILED — discarding stale session");
         None
     }
 }
@@ -108,6 +128,17 @@ pub fn release_session(app: &AppHandle, cache_key: &str, session: Session) {
             evicted,
             "SessionPool::release"
         );
+    }
+}
+
+/// Force-remove a session from the pool (e.g. after an SFTP channel-open
+/// failure that indicates a stale connection).
+pub fn evict_session(app: &AppHandle, cache_key: &str) {
+    if let Some(pool) = app.try_state::<SessionPool>() {
+        let mut cache = pool.cache.lock().unwrap();
+        if cache.remove(cache_key).is_some() {
+            tracing::info!(%cache_key, "SessionPool::evict — forcibly removed");
+        }
     }
 }
 
@@ -231,6 +262,15 @@ pub fn establish_ssh_session(
     sess.set_timeout(30_000);
     sess.handshake()
         .map_err(|e| AppError::SshConnection(format!("SSH握手失败: {}", e)))?;
+
+    // ── Prefer rsa-sha2-256/512 over ssh-rsa (SHA-1) ──
+    // Modern OpenSSH servers (Ubuntu 22.04+, RHEL 9+) disable ssh-rsa by
+    // default.  libssh2 ≥ 1.11.0 supports rsa-sha2-*; the call is a no-op if
+    // the linked libssh2 is older.
+    let _ = sess.method_pref(
+        ssh2::MethodType::SignAlgo,
+        "rsa-sha2-256,rsa-sha2-512,ssh-rsa",
+    );
 
     // Host key verification
     let mut known_hosts_path = app

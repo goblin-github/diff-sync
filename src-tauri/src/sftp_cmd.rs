@@ -7,6 +7,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri::Manager;
+use tracing;
 
 use crate::error::AppError;
 use crate::ssh_session;
@@ -178,17 +179,32 @@ pub async fn read_remote_config(
         let map = load_credentials(&app);
         let cred = map.get(&env_id).cloned().unwrap_or_default();
         let mut on_hostkey = |_fingerprint: &str| -> Result<(), AppError> { Ok(()) };
-        let sess = ssh_session::establish_ssh_session(
+        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
+        let mut sess = ssh_session::establish_ssh_session(
             &app, &host, port, &username,
             private_key_path.as_deref(), cred, 8,
             &mut on_hostkey,
         )?;
-        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
-        // Wrap SFTP operations in a closure so release_session always runs.
+
+        // Open SFTP channel with one automatic retry if the cached session
+        // had become stale (race between keepalive probe and sftp()).
+        let sftp = match sess.sftp() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%cache_key, "SFTP open failed: {}, retrying with fresh session", e);
+                ssh_session::evict_session(&app, &cache_key);
+                let cred2 = map.get(&env_id).cloned().unwrap_or_default();
+                sess = ssh_session::establish_ssh_session(
+                    &app, &host, port, &username,
+                    private_key_path.as_deref(), cred2, 8,
+                    &mut on_hostkey,
+                )?;
+                sess.sftp()
+                    .map_err(|e2| AppError::Sftp(format!("SFTP会话开启失败(已重试): {}", e2)))?
+            }
+        };
+
         let result = (|| -> Result<(String, String), AppError> {
-            let sftp = sess
-                .sftp()
-                .map_err(|e| AppError::Sftp(format!("SFTP会话开启失败: {}", e)))?;
             let path = Path::new(&remote_file_path);
             let stat = match sftp.stat(path) {
                 Ok(s) => s,
@@ -221,6 +237,7 @@ pub async fn read_remote_config(
             };
             Ok((contents, ending.to_string()))
         })();
+        drop(sftp);
         ssh_session::release_session(&app, &cache_key, sess);
         result
     })
@@ -244,17 +261,31 @@ pub async fn write_remote_config(
         let map = load_credentials(&app);
         let cred = map.get(&env_id).cloned().unwrap_or_default();
         let mut on_hostkey = |_fingerprint: &str| -> Result<(), AppError> { Ok(()) };
-        let sess = ssh_session::establish_ssh_session(
+        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
+        let mut sess = ssh_session::establish_ssh_session(
             &app, &host, port, &username,
             private_key_path.as_deref(), cred, 10,
             &mut on_hostkey,
         )?;
-        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
-        // Wrap SFTP operations in a closure so release_session always runs.
+
+        // Open SFTP channel with one automatic retry.
+        let sftp = match sess.sftp() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%cache_key, "SFTP open failed: {}, retrying with fresh session", e);
+                ssh_session::evict_session(&app, &cache_key);
+                let cred2 = map.get(&env_id).cloned().unwrap_or_default();
+                sess = ssh_session::establish_ssh_session(
+                    &app, &host, port, &username,
+                    private_key_path.as_deref(), cred2, 10,
+                    &mut on_hostkey,
+                )?;
+                sess.sftp()
+                    .map_err(|e2| AppError::Sftp(format!("SFTP写入开启失败(已重试): {}", e2)))?
+            }
+        };
+
         let result = (|| -> Result<(), AppError> {
-            let sftp = sess
-                .sftp()
-                .map_err(|e| AppError::Sftp(format!("SFTP写入开启失败: {}", e)))?;
             let path = Path::new(&remote_file_path);
             ssh_session::ensure_remote_dir_exists(&sftp, path)?;
 
@@ -271,6 +302,7 @@ pub async fn write_remote_config(
                 .map_err(|e| AppError::Sftp(format!("写入目标文件失败: {}", e)))?;
             Ok(())
         })();
+        drop(sftp);
         ssh_session::release_session(&app, &cache_key, sess);
         result
     })
@@ -296,17 +328,31 @@ pub async fn push_remote_config(
         let map = load_credentials(&app);
         let cred = map.get(&env_id).cloned().unwrap_or_default();
         let mut on_hostkey = |_fingerprint: &str| -> Result<(), AppError> { Ok(()) };
-        let sess = ssh_session::establish_ssh_session(
+        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
+        let mut sess = ssh_session::establish_ssh_session(
             &app, &host, port, &username,
             private_key_path.as_deref(), cred, 10,
             &mut on_hostkey,
         )?;
-        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
-        // Wrap SFTP operations in a closure so release_session always runs.
+
+        // Open SFTP channel with one automatic retry.
+        let sftp = match sess.sftp() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%cache_key, "SFTP open failed: {}, retrying with fresh session", e);
+                ssh_session::evict_session(&app, &cache_key);
+                let cred2 = map.get(&env_id).cloned().unwrap_or_default();
+                sess = ssh_session::establish_ssh_session(
+                    &app, &host, port, &username,
+                    private_key_path.as_deref(), cred2, 10,
+                    &mut on_hostkey,
+                )?;
+                sess.sftp()
+                    .map_err(|e2| AppError::Sftp(format!("SFTP会话开启失败(已重试): {}", e2)))?
+            }
+        };
+
         let result = (|| -> Result<Option<BackupRecord>, AppError> {
-            let sftp = sess
-                .sftp()
-                .map_err(|e| AppError::Sftp(format!("SFTP会话开启失败: {}", e)))?;
             let path = Path::new(&remote_file_path);
 
             // Phase 1: Backup (same SSH session)
@@ -369,6 +415,7 @@ pub async fn push_remote_config(
                 .map_err(|e| AppError::Sftp(format!("写入目标文件失败: {}", e)))?;
             Ok(backup_record)
         })();
+        drop(sftp);
         ssh_session::release_session(&app, &cache_key, sess);
         result
     })
@@ -505,21 +552,36 @@ pub async fn backup_remote_config(
         let map = load_credentials(&app);
         let cred = map.get(&env_id).cloned().unwrap_or_default();
         let mut on_hostkey = |_fingerprint: &str| -> Result<(), AppError> { Ok(()) };
-        let sess = ssh_session::establish_ssh_session(
+        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
+        let mut sess = ssh_session::establish_ssh_session(
             &app, &host, port, &username,
             private_key_path.as_deref(), cred, 8,
             &mut on_hostkey,
         )?;
-        let sftp = sess
-            .sftp()
-            .map_err(|e| AppError::Sftp(format!("备份SFTP失败: {}", e)))?;
+
+        // Open SFTP channel with one automatic retry.
+        let sftp = match sess.sftp() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%cache_key, "SFTP open failed: {}, retrying with fresh session", e);
+                ssh_session::evict_session(&app, &cache_key);
+                let cred2 = map.get(&env_id).cloned().unwrap_or_default();
+                sess = ssh_session::establish_ssh_session(
+                    &app, &host, port, &username,
+                    private_key_path.as_deref(), cred2, 8,
+                    &mut on_hostkey,
+                )?;
+                sess.sftp()
+                    .map_err(|e2| AppError::Sftp(format!("备份SFTP失败(已重试): {}", e2)))?
+            }
+        };
+
         let path = Path::new(&remote_file_path);
         let mut file = match sftp.open(path) {
             Ok(f) => f,
             Err(e) => {
                 if e.code() == ssh2::ErrorCode::SFTP(2) {
                     drop(sftp);
-                    let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
                     ssh_session::release_session(&app, &cache_key, sess);
                     return Ok(None);
                 }
@@ -551,7 +613,6 @@ pub async fn backup_remote_config(
 
         drop(file);
         drop(sftp);
-        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
         ssh_session::release_session(&app, &cache_key, sess);
         Ok(Some(BackupRecord {
             filename: backup_name,
@@ -634,14 +695,30 @@ pub async fn restore_backup(
         let map = load_credentials(&app);
         let cred = map.get(&env_id).cloned().unwrap_or_default();
         let mut on_hostkey = |_fingerprint: &str| -> Result<(), AppError> { Ok(()) };
-        let sess = ssh_session::establish_ssh_session(
+        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
+        let mut sess = ssh_session::establish_ssh_session(
             &app, &host, port, &username,
             private_key_path.as_deref(), cred, 10,
             &mut on_hostkey,
         )?;
-        let sftp = sess
-            .sftp()
-            .map_err(|e| AppError::Sftp(format!("恢复SFTP失败: {}", e)))?;
+
+        // Open SFTP channel with one automatic retry.
+        let sftp = match sess.sftp() {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(%cache_key, "SFTP open failed: {}, retrying with fresh session", e);
+                ssh_session::evict_session(&app, &cache_key);
+                let cred2 = map.get(&env_id).cloned().unwrap_or_default();
+                sess = ssh_session::establish_ssh_session(
+                    &app, &host, port, &username,
+                    private_key_path.as_deref(), cred2, 10,
+                    &mut on_hostkey,
+                )?;
+                sess.sftp()
+                    .map_err(|e2| AppError::Sftp(format!("恢复SFTP失败(已重试): {}", e2)))?
+            }
+        };
+
         let path = Path::new(&remote_file_path);
         let mut remote = sftp
             .create(path)
@@ -651,7 +728,6 @@ pub async fn restore_backup(
             .map_err(|e| AppError::Sftp(format!("恢复写入远程文件失败: {}", e)))?;
         drop(remote);
         drop(sftp);
-        let cache_key = ssh_session::make_cache_key(&host, port, &username, private_key_path.as_deref());
         ssh_session::release_session(&app, &cache_key, sess);
         Ok(())
     })

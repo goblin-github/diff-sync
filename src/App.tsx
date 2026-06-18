@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { DiffEditor } from '@monaco-editor/react';
 import { Project, Environment, getRemoteFilePath } from './types';
@@ -114,22 +113,20 @@ export const App: React.FC = () => {
     return onOpenSettings(() => setActiveNav('settings'));
   }, [onOpenSettings]);
 
-  // ── Window close warning ──
+  // ── Window close: handled by Rust on_window_event → JS event ──
+  // Rust intercepts the native CloseRequested, prevents it, and emits
+  // "close-requested-from-rust".  We check dirty state here and either
+  // show the quit dialog or call confirm_quit to actually close.
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    getCurrentWindow().onCloseRequested((event) => {
-      if (cancelled) return;
+    const unlisten = listen('close-requested-from-rust', () => {
       if (editor.isDirtyRef?.current) {
-        event.preventDefault();
         setPendingQuit(true);
+      } else {
+        invoke('confirm_quit');
       }
-    }).then((fn: () => void) => { if (!cancelled) unlisten = fn; });
-
+    });
     return () => {
-      cancelled = true;
-      unlisten?.();
+      unlisten.then((fn) => fn());
     };
   }, []); // isDirtyRef is a ref — always reads latest value
 
@@ -218,16 +215,17 @@ export const App: React.FC = () => {
   const handleSaveAndQuit = useCallback(async () => {
     setPendingQuit(false);
     const ok = await editor.handlePushConfig();
-    if (ok) await getCurrentWindow().destroy();
+    if (ok) await invoke('confirm_quit');
   }, [editor]);
 
   const handleDiscardAndQuit = useCallback(async () => {
     setPendingQuit(false);
-    await getCurrentWindow().destroy();
+    await invoke('confirm_quit');
   }, []);
 
   const handleCancelQuit = useCallback(() => {
     setPendingQuit(false);
+    invoke('cancel_quit');
   }, []);
 
   // ── Render ──

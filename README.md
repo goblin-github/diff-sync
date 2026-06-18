@@ -16,7 +16,7 @@
 - **安全第一**：生产环境默认启用安全锁，推送前需要解锁 + 二次确认。
 - **格式感知**：支持 JSON、YAML、TOML、INI、XML 等常见配置格式的语法校验。
 - **备份护航**：每次推送自动备份远端文件至本地，保留最近 5 份。
-- **连接复用**：SSH Session 连接池缓存 2 分钟，减少重复握手开销。
+- **连接复用**：SSH Session 连接池缓存 30 秒 + keepalive 活性探测，减少重复握手开销的同时防止复用已断开的死连接。
 
 ### 技术栈
 
@@ -52,7 +52,7 @@
 - [x] 连接测试功能（配置环境时即时验证）
 - [x] Host Key 指纹校验（known_hosts 管理，首次 TOFU + 变更检测）
 - [x] 主机密钥变更检测与提示（支持接受新密钥后重试）
-- [x] SSH Session 连接池缓存（2 分钟 TTL，减少重复握手）
+- [x] SSH Session 连接池缓存（30s TTL + keepalive 活性探测，死连接自动剔除）
 - [x] 异常路径连接自动归还连接池
 
 ### 差异比对（Diff Editor）
@@ -160,8 +160,8 @@ diff-sync/
 │   └── src/
 │       ├── main.rs                   # Rust 入口（不显示终端窗口）
 │       ├── lib.rs                    # Tauri 插件注册、菜单栏、命令注册
-│       ├── sftp_cmd.rs               # 核心业务逻辑（SSH 连接、SFTP 读写、
-│       │                             #   格式校验、备份管理、凭据存储、连接池）
+│       ├── sftp_cmd.rs               # 核心业务逻辑（SSH 连接、SFTP 读写（通道失败
+│       │                             #   自动重试）、格式校验、备份管理、凭据存储、连接池）
 │       ├── error.rs                  # 统一错误类型（带错误码序列化）
 │       └── known_hosts.rs            # SSH Host Key 校验与管理
 │
@@ -273,7 +273,7 @@ opt-level = "s"        # 优化体积
 ### Rust 代码结构
 
 - **`lib.rs`** — 应用入口，注册 Tauri 插件、菜单栏、命令处理器
-- **`ssh_session.rs`** — SSH 会话管理：连接建立、多层认证（Agent/密钥/密码）、SessionPool 连接池、Host Key 校验
+- **`ssh_session.rs`** — SSH 会话管理：连接建立、多层认证（Agent/密钥/密码）、SessionPool 连接池（keepalive 活性探测 + 30s TTL）、Host Key 校验、rsa-sha2 签名算法协商
 - **`sftp_cmd.rs`** — 命令处理器：SFTP 文件读写、凭据存储、备份管理、格式校验、项目数据持久化
 - **`error.rs`** — 统一错误类型 `AppError`，带错误码序列化为 `{code, message}` JSON
 - **`known_hosts.rs`** — OpenSSH 格式 known_hosts 文件的读写与 Host Key 校验
